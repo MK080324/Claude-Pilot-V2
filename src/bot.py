@@ -35,6 +35,30 @@ async def main() -> None:
     tg_app.bot_data["base_dir"] = BASE_DIR
 
     # --- Handler Registration (dev-ext maintains below this line) ---
+    from handlers.commands import (
+        cmd_setup, cmd_start, cmd_projects, cmd_resume, cmd_rename,
+        cmd_interrupt, cmd_quit, cmd_delete, cmd_bypass, cmd_status,
+        cmd_info, cmd_retry, cmd_setdir,
+    )
+    from handlers.messages import handle_message
+    from handlers.callbacks import handle_button
+    from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters
+
+    tg_app.add_handler(CommandHandler("setup", cmd_setup))
+    tg_app.add_handler(CommandHandler("start", cmd_start))
+    tg_app.add_handler(CommandHandler("projects", cmd_projects))
+    tg_app.add_handler(CommandHandler("resume", cmd_resume))
+    tg_app.add_handler(CommandHandler("rename", cmd_rename))
+    tg_app.add_handler(CommandHandler("interrupt", cmd_interrupt))
+    tg_app.add_handler(CommandHandler("quit", cmd_quit))
+    tg_app.add_handler(CommandHandler("delete", cmd_delete))
+    tg_app.add_handler(CommandHandler("bypass", cmd_bypass))
+    tg_app.add_handler(CommandHandler("status", cmd_status))
+    tg_app.add_handler(CommandHandler("info", cmd_info))
+    tg_app.add_handler(CommandHandler("retry", cmd_retry))
+    tg_app.add_handler(CommandHandler("setdir", cmd_setdir))
+    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    tg_app.add_handler(CallbackQueryHandler(handle_button))
 
     api_app = create_api_app(state, tg_app.bot)
     runner = web.AppRunner(api_app)
