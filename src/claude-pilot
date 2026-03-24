@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""claude-pilot CLI 管理工具。"""
+from __future__ import annotations
+
+import argparse
+import sys
+
+
+def cmd_start(args: argparse.Namespace) -> None:
+    """启动 Bot。"""
+    raise NotImplementedError
+
+
+def cmd_stop(args: argparse.Namespace) -> None:
+    """停止 Bot。"""
+    raise NotImplementedError
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    """查看状态。"""
+    raise NotImplementedError
+
+
+def cmd_enable(args: argparse.Namespace) -> None:
+    """启用 launchd 自动启动。"""
+    raise NotImplementedError
+
+
+def cmd_disable(args: argparse.Namespace) -> None:
+    """禁用 launchd 自动启动。"""
+    raise NotImplementedError
+
+
+def cmd_logs(args: argparse.Namespace) -> None:
+    """查看日志。"""
+    raise NotImplementedError
+
+
+def main() -> None:
+    """CLI 入口。"""
+    parser = argparse.ArgumentParser(prog="claude-pilot", description="Claude Pilot v2 管理工具")
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("start", help="启动 Bot")
+    sub.add_parser("stop", help="停止 Bot")
+    sub.add_parser("status", help="查看状态")
+    sub.add_parser("enable", help="启用 launchd")
+    sub.add_parser("disable", help="禁用 launchd")
+    sub.add_parser("logs", help="查看日志")
+
+    args = parser.parse_args()
+    commands = {
+        "start": cmd_start, "stop": cmd_stop, "status": cmd_status,
+        "enable": cmd_enable, "disable": cmd_disable, "logs": cmd_logs,
+    }
+    if args.command in commands:
+        commands[args.command](args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
