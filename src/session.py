@@ -48,12 +48,21 @@ def get_tmux_lock(pane_id: str) -> asyncio.Lock:
 
 async def _tmux_exec(*args: str) -> str:
     """底层 tmux 命令执行封装。"""
-    raise NotImplementedError
+    proc = await asyncio.create_subprocess_exec(
+        "tmux", *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    return stdout.decode("utf-8", errors="replace")
 
 
 async def _capture_pane(pane_id: str) -> str:
     """捕获 pane 可见内容并过滤控制字符。"""
-    raise NotImplementedError
+    raw = await _tmux_exec("capture-pane", "-t", pane_id, "-p")
+    text = ANSI_ESCAPE_RE.sub("", raw)
+    text = CONTROL_CHAR_RE.sub("", text)
+    return text
 
 
 async def _load_buffer_paste(pane_id: str, text: str) -> None:
@@ -70,7 +79,24 @@ async def _wait_for_state(
 
 async def detect_tui_state(pane_id: str) -> TuiState:
     """捕获 pane 内容并识别 TUI 状态。"""
-    raise NotImplementedError
+    content = await _capture_pane(pane_id)
+    lines = [l for l in content.splitlines() if l.strip()]
+    tail = lines[-5:] if len(lines) >= 5 else lines
+    text = "\n".join(tail)
+    # 优先级: permission > exited > generating > input
+    for pattern in TUI_PATTERNS["permission"]:
+        if pattern in text:
+            return TuiState.PERMISSION_PROMPT
+    for pattern in TUI_PATTERNS["exited"]:
+        if pattern in text:
+            return TuiState.EXITED
+    for pattern in TUI_PATTERNS["generating"]:
+        if pattern in text:
+            return TuiState.GENERATING
+    for pattern in TUI_PATTERNS["input_prompt"]:
+        if pattern in text:
+            return TuiState.INPUT
+    return TuiState.GENERATING
 
 
 async def launch_session(

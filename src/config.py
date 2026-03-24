@@ -38,14 +38,54 @@ class State:
 
 def load_env(path: str) -> dict[str, str]:
     """解析 .env 文件，返回键值对字典。"""
-    raise NotImplementedError
+    result: dict[str, str] = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            result[key] = value
+    return result
 
 
 def load_state(path: str) -> State:
     """加载 .state.json，文件不存在时返回空 State。"""
-    raise NotImplementedError
+    if not os.path.exists(path):
+        return State()
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return State(
+        group_chat_id=data.get("group_chat_id"),
+        notify_chat_id=data.get("notify_chat_id"),
+        sessions=data.get("sessions", {}),
+        session_topics=data.get("session_topics", {}),
+    )
 
 
 def save_state(state: State, path: str) -> None:
     """原子写入 .state.json（tempfile + os.rename）。"""
-    raise NotImplementedError
+    dir_name = os.path.dirname(path) or "."
+    data = {
+        "group_chat_id": state.group_chat_id,
+        "notify_chat_id": state.notify_chat_id,
+        "sessions": state.sessions,
+        "session_topics": state.session_topics,
+    }
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.rename(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
