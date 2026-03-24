@@ -4,9 +4,11 @@ from __future__ import annotations
 import asyncio
 import enum
 import re
+import tempfile
+import uuid
 from dataclasses import dataclass
 
-from config import State
+from config import SessionInfo, State
 
 
 class TuiState(enum.Enum):
@@ -26,6 +28,12 @@ TUI_PATTERNS: dict[str, list[str]] = {
     "exited": ["$", "%", "#"],
     "permission": ["Do you want to", "(y/n)"],
 }
+
+class SessionDead(Exception):
+    """会话已退出。"""
+
+class PermissionPending(Exception):
+    """会话正在等待权限确认。"""
 
 # Lock 管理
 _topic_locks: dict[int, asyncio.Lock] = {}
@@ -67,14 +75,29 @@ async def _capture_pane(pane_id: str) -> str:
 
 async def _load_buffer_paste(pane_id: str, text: str) -> None:
     """通过 load-buffer + paste-buffer 安全注入多行文本。"""
-    raise NotImplementedError
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write(text)
+        tmp = f.name
+    try:
+        await _tmux_exec("load-buffer", tmp)
+        await _tmux_exec("paste-buffer", "-t", pane_id)
+    finally:
+        import os
+        os.unlink(tmp)
 
 
 async def _wait_for_state(
     pane_id: str, target_state: TuiState, timeout: float = 10.0
 ) -> bool:
     """轮询等待目标状态。"""
-    raise NotImplementedError
+    elapsed = 0.0
+    while elapsed < timeout:
+        state = await detect_tui_state(pane_id)
+        if state == target_state:
+            return True
+        await asyncio.sleep(0.3)
+        elapsed += 0.3
+    return False
 
 
 async def detect_tui_state(pane_id: str) -> TuiState:
@@ -101,31 +124,67 @@ async def detect_tui_state(pane_id: str) -> TuiState:
 
 async def launch_session(
     project_dir: str, state: State, bot: object
-) -> "SessionInfo":
+) -> SessionInfo:
     """创建 tmux 窗口并启动 Claude。"""
-    raise NotImplementedError
+    session_id = uuid.uuid4().hex[:8]
+    window_name = f"cp-{session_id}"
+    await _tmux_exec(
+        "new-window", "-d", "-n", window_name,
+        f"cd {project_dir} && claude --resume",
+    )
+    pane_out = await _tmux_exec(
+        "list-panes", "-t", window_name, "-F", "#{pane_id}",
+    )
+    pane_id = pane_out.strip().splitlines()[0] if pane_out.strip() else None
+    transcript_path = f"{project_dir}/.claude/transcript.jsonl"
+    return SessionInfo(
+        session_id=session_id, transcript_path=transcript_path,
+        cwd=project_dir, pane_id=pane_id, topic_id=0, source="telegram",
+    )
 
 
 async def inject_message(pane_id: str, text: str) -> None:
     """状态感知式消息注入。"""
-    raise NotImplementedError
+    async with get_tmux_lock(pane_id):
+        state = await detect_tui_state(pane_id)
+        if state == TuiState.EXITED:
+            raise SessionDead("Session has exited")
+        if state == TuiState.PERMISSION_PROMPT:
+            raise PermissionPending("Permission prompt active")
+        if state == TuiState.GENERATING:
+            await _tmux_exec("send-keys", "-t", pane_id, "Escape", "")
+            await asyncio.sleep(0.5)
+        filtered = CONTROL_CHAR_RE.sub("", text)
+        await _load_buffer_paste(pane_id, filtered)
+        await _tmux_exec("send-keys", "-t", pane_id, "Enter", "")
 
 
 async def interrupt_session(pane_id: str) -> None:
     """中断 Claude 生成（Escape）。"""
-    raise NotImplementedError
+    await _tmux_exec("send-keys", "-t", pane_id, "Escape", "")
 
 
 async def kill_session(window_name: str) -> None:
     """销毁 tmux 窗口。"""
-    raise NotImplementedError
+    await _tmux_exec("kill-window", "-t", window_name)
 
 
 async def respond_tui_permission(pane_id: str, allow: bool) -> None:
     """TUI 层权限响应（send-keys y/n）。"""
-    raise NotImplementedError
+    key = "y" if allow else "n"
+    await _tmux_exec("send-keys", "-t", pane_id, key, "")
 
 
 async def list_tmux_windows() -> list[dict]:
     """列出所有活跃的 Claude 窗口。"""
-    raise NotImplementedError
+    out = await _tmux_exec(
+        "list-windows", "-F", "#{window_name} #{pane_id}",
+    )
+    result: list[dict] = []
+    for line in out.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[0].startswith("cp-"):
+            result.append({"window_name": parts[0], "pane_id": parts[1]})
+    return result

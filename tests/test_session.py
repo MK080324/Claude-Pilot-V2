@@ -11,11 +11,20 @@ from session import (
     CONTROL_CHAR_RE,
     TUI_PATTERNS,
     TuiState,
+    PermissionPending,
+    SessionDead,
     _capture_pane,
     detect_tui_state,
     get_tmux_lock,
     get_topic_lock,
+    inject_message,
+    interrupt_session,
+    kill_session,
+    launch_session,
+    list_tmux_windows,
+    respond_tui_permission,
 )
+from config import State
 
 
 class TestControlCharFilter:
@@ -132,3 +141,102 @@ class TestLocks:
         lock1 = get_tmux_lock("%1")
         lock2 = get_tmux_lock("%1")
         assert lock1 is lock2
+
+
+class TestLaunchSession:
+    @pytest.mark.asyncio
+    async def test_returns_session_info(self):
+        mock_exec = AsyncMock(side_effect=["", "%5\n"])
+        with patch("session._tmux_exec", mock_exec):
+            info = await launch_session("/tmp/project", State(), None)
+        assert len(info.session_id) == 8
+        assert info.pane_id == "%5"
+        assert info.cwd == "/tmp/project"
+        assert info.source == "telegram"
+
+
+class TestInjectMessage:
+    @pytest.mark.asyncio
+    async def test_inject_in_input_state(self):
+        mock_exec = AsyncMock(return_value="> \n")
+        with patch("session._tmux_exec", mock_exec), \
+             patch("session._load_buffer_paste", new_callable=AsyncMock) as mock_paste:
+            await inject_message("%1", "hello")
+        mock_paste.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_inject_in_generating_sends_escape(self):
+        call_count = 0
+        async def mock_exec(*args):
+            nonlocal call_count
+            if args[0] == "capture-pane":
+                call_count += 1
+                return "thinking...\n" if call_count == 1 else "> \n"
+            return ""
+        with patch("session._tmux_exec", side_effect=mock_exec), \
+             patch("session._load_buffer_paste", new_callable=AsyncMock):
+            await inject_message("%1", "hello")
+
+    @pytest.mark.asyncio
+    async def test_inject_in_exited_raises(self):
+        with patch("session._tmux_exec", new_callable=AsyncMock, return_value="user@host $ \n"):
+            with pytest.raises(SessionDead):
+                await inject_message("%1", "hello")
+
+    @pytest.mark.asyncio
+    async def test_inject_in_permission_raises(self):
+        with patch("session._tmux_exec", new_callable=AsyncMock,
+                   return_value="Do you want to run? (y/n)\n"):
+            with pytest.raises(PermissionPending):
+                await inject_message("%1", "hello")
+
+
+class TestInterruptSession:
+    @pytest.mark.asyncio
+    async def test_sends_escape(self):
+        mock_exec = AsyncMock(return_value="")
+        with patch("session._tmux_exec", mock_exec):
+            await interrupt_session("%1")
+        mock_exec.assert_called_with("send-keys", "-t", "%1", "Escape", "")
+
+
+class TestKillSession:
+    @pytest.mark.asyncio
+    async def test_kills_window(self):
+        mock_exec = AsyncMock(return_value="")
+        with patch("session._tmux_exec", mock_exec):
+            await kill_session("cp-abc123")
+        mock_exec.assert_called_with("kill-window", "-t", "cp-abc123")
+
+
+class TestRespondTuiPermission:
+    @pytest.mark.asyncio
+    async def test_allow(self):
+        mock_exec = AsyncMock(return_value="")
+        with patch("session._tmux_exec", mock_exec):
+            await respond_tui_permission("%1", True)
+        mock_exec.assert_called_with("send-keys", "-t", "%1", "y", "")
+
+    @pytest.mark.asyncio
+    async def test_deny(self):
+        mock_exec = AsyncMock(return_value="")
+        with patch("session._tmux_exec", mock_exec):
+            await respond_tui_permission("%1", False)
+        mock_exec.assert_called_with("send-keys", "-t", "%1", "n", "")
+
+
+class TestListTmuxWindows:
+    @pytest.mark.asyncio
+    async def test_parses_output(self):
+        output = "cp-abc1 %1\ncp-def2 %2\nbot %0\n"
+        with patch("session._tmux_exec", new_callable=AsyncMock, return_value=output):
+            result = await list_tmux_windows()
+        assert len(result) == 2
+        assert result[0]["window_name"] == "cp-abc1"
+        assert result[1]["pane_id"] == "%2"
+
+    @pytest.mark.asyncio
+    async def test_empty_output(self):
+        with patch("session._tmux_exec", new_callable=AsyncMock, return_value=""):
+            result = await list_tmux_windows()
+        assert result == []
