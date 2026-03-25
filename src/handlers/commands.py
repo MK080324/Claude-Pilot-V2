@@ -65,7 +65,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "6. 将本 Bot 加入群组并设为<b>管理员</b>\n\n"
         "<b>三、完成配置</b>\n"
         "7. 在群组中发送 /setup\n\n"
-        "全部完成后，每个 Claude Code 会话都会自动推送到群组话题中。"
+        "全部完成后，每个 Claude Code 会话都会自动推送到群组话题中。\n"
+        "发 /help 查看所有可用命令。"
     )
     await update.message.reply_text(welcome, parse_mode="HTML")
 
@@ -217,3 +218,32 @@ async def cmd_setdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     config.project_dir = parts[1].strip()
     save_state(state, sp)
     await update.message.reply_text(f"项目目录已设置为: {config.project_dir}")
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config, _, _ = _ctx(context)
+    if not _auth_check(update, config):
+        return
+    text = (
+        "<b>可用命令</b>\n\n"
+        "<b>配置</b>\n"
+        "/start — 初始引导\n"
+        "/setup — 在群组中完成配置\n"
+        "/setdir &lt;路径&gt; — 设置项目目录\n\n"
+        "<b>会话</b>\n"
+        "/projects — 选择项目启动新会话\n"
+        "/resume — 查看历史会话\n"
+        "/status — 查看运行状态\n\n"
+        "<b>话题内操作</b>\n"
+        "/interrupt — 中断当前生成\n"
+        "/rename &lt;名称&gt; — 重命名话题\n"
+        "/info — 查看会话详情\n"
+        "/quit — 停止监听\n"
+        "/delete — 删除会话\n\n"
+        "<b>其他</b>\n"
+        "/bypass — 开关 Hook 权限审批\n"
+        "/help — 显示本帮助"
+    )
+    await update.message.reply_text(text, parse_mode="HTML")
+
+async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("未知命令，发 /help 查看可用命令。")

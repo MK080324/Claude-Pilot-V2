@@ -7,6 +7,7 @@ import os
 import signal
 
 from aiohttp import web
+from telegram import BotCommand
 from telegram.ext import ApplicationBuilder
 
 from api import create_api_app
@@ -38,7 +39,7 @@ async def main() -> None:
     from handlers.commands import (
         cmd_setup, cmd_start, cmd_projects, cmd_resume, cmd_rename,
         cmd_interrupt, cmd_quit, cmd_delete, cmd_bypass, cmd_status,
-        cmd_info, cmd_retry, cmd_setdir,
+        cmd_info, cmd_retry, cmd_setdir, cmd_help, cmd_unknown,
     )
     from handlers.messages import handle_message
     from handlers.callbacks import handle_button
@@ -57,8 +58,10 @@ async def main() -> None:
     tg_app.add_handler(CommandHandler("info", cmd_info))
     tg_app.add_handler(CommandHandler("retry", cmd_retry))
     tg_app.add_handler(CommandHandler("setdir", cmd_setdir))
+    tg_app.add_handler(CommandHandler("help", cmd_help))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     tg_app.add_handler(CallbackQueryHandler(handle_button))
+    tg_app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
     api_app = create_api_app(state, tg_app.bot)
     runner = web.AppRunner(api_app)
@@ -77,6 +80,21 @@ async def main() -> None:
         loop.add_signal_handler(sig, stop_event.set)
 
     await tg_app.initialize()
+    await tg_app.bot.set_my_commands([
+        BotCommand("start", "初始引导"),
+        BotCommand("help", "查看所有命令"),
+        BotCommand("setup", "配置群组"),
+        BotCommand("projects", "选择项目启动会话"),
+        BotCommand("status", "查看运行状态"),
+        BotCommand("resume", "查看历史会话"),
+        BotCommand("setdir", "设置项目目录"),
+        BotCommand("bypass", "开关权限审批"),
+        BotCommand("interrupt", "中断当前生成"),
+        BotCommand("quit", "停止监听"),
+        BotCommand("info", "查看会话详情"),
+        BotCommand("rename", "重命名话题"),
+        BotCommand("delete", "删除会话"),
+    ])
     await tg_app.start()
     await tg_app.updater.start_polling()
     logger.info("Bot started, polling for updates...")
