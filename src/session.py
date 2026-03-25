@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import glob
+import os
 import re
 import tempfile
 import uuid
@@ -142,11 +144,25 @@ async def launch_session(
         "-F", "#{pane_id}",
     )
     pane_id = pane_out.strip().splitlines()[0] if pane_out.strip() else None
-    transcript_path = f"{project_dir}/.claude/transcript.jsonl"
+    transcript_path = await _find_transcript(project_dir)
     return SessionInfo(
         session_id=session_id, transcript_path=transcript_path,
         cwd=project_dir, pane_id=pane_id, topic_id=0, source="telegram",
     )
+
+
+async def _find_transcript(project_dir: str, timeout: float = 15.0) -> str:
+    """等待 Claude Code 创建 JSONL 并返回路径。"""
+    encoded = project_dir.replace("/", "-")
+    pat = os.path.expanduser(f"~/.claude/projects/{encoded}/*.jsonl")
+    before = set(glob.glob(pat))
+    for _ in range(int(timeout)):
+        await asyncio.sleep(1.0)
+        new = set(glob.glob(pat)) - before
+        if new:
+            return max(new, key=os.path.getmtime)
+    all_f = glob.glob(pat)
+    return max(all_f, key=os.path.getmtime) if all_f else ""
 
 
 async def inject_message(pane_id: str, text: str) -> None:
@@ -181,16 +197,3 @@ async def respond_tui_permission(pane_id: str, allow: bool) -> None:
     await _tmux_exec("send-keys", "-t", pane_id, key, "")
 
 
-async def list_tmux_windows() -> list[dict]:
-    """列出所有活跃的 Claude 窗口。"""
-    out = await _tmux_exec(
-        "list-windows", "-F", "#{window_name} #{pane_id}",
-    )
-    result: list[dict] = []
-    for line in out.strip().splitlines():
-        if not line.strip():
-            continue
-        parts = line.strip().split(None, 1)
-        if len(parts) == 2 and parts[0].startswith("cp-"):
-            result.append({"window_name": parts[0], "pane_id": parts[1]})
-    return result
