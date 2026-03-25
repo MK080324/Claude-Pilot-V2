@@ -41,7 +41,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     state.notify_chat_id = update.effective_chat.id
     save_state(state, sp)
-    await update.message.reply_text("已设置通知")
+    welcome = (
+        "👋 欢迎使用 <b>Claude Pilot</b>！\n\n"
+        "请按以下步骤完成配置：\n"
+        "1. 创建一个 Telegram 群组\n"
+        "2. 将本 Bot 加入群组并设为管理员\n"
+        "3. 在群组中发送 /setup\n\n"
+        "配置完成后，每个 Claude Code 会话都会自动推送到群组话题中。"
+    )
+    await update.message.reply_text(welcome, parse_mode="HTML")
 
 async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     config, state, _ = _ctx(context)
