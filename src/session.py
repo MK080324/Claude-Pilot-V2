@@ -132,6 +132,10 @@ async def launch_session(
 ) -> SessionInfo:
     """在独立 tmux session 中创建窗口并启动 Claude。"""
     await _ensure_sessions_tmux()
+    # 记录已有 JSONL，用于后续发现新文件
+    encoded = project_dir.replace("/", "-")
+    pat = os.path.expanduser(f"~/.claude/projects/{encoded}/*.jsonl")
+    before = set(glob.glob(pat))
     session_id = uuid.uuid4().hex[:8]
     window_name = f"cp-{session_id}"
     await _tmux_exec(
@@ -144,18 +148,15 @@ async def launch_session(
         "-F", "#{pane_id}",
     )
     pane_id = pane_out.strip().splitlines()[0] if pane_out.strip() else None
-    transcript_path = await _find_transcript(project_dir)
+    transcript_path = await _find_new_jsonl(pat, before)
     return SessionInfo(
         session_id=session_id, transcript_path=transcript_path,
         cwd=project_dir, pane_id=pane_id, topic_id=0, source="telegram",
     )
 
 
-async def _find_transcript(project_dir: str, timeout: float = 15.0) -> str:
-    """等待 Claude Code 创建 JSONL 并返回路径。"""
-    encoded = project_dir.replace("/", "-")
-    pat = os.path.expanduser(f"~/.claude/projects/{encoded}/*.jsonl")
-    before = set(glob.glob(pat))
+async def _find_new_jsonl(pat: str, before: set, timeout: float = 30.0) -> str:
+    """等待新 JSONL 文件出现。"""
     for _ in range(int(timeout)):
         await asyncio.sleep(1.0)
         new = set(glob.glob(pat)) - before
