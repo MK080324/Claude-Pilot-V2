@@ -23,10 +23,10 @@ CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 TUI_PATTERNS: dict[str, list[str]] = {
-    "input_prompt": [">"],
-    "generating": ["thinking", "..."],
-    "exited": ["$", "%", "#"],
-    "permission": ["Do you want to", "(y/n)"],
+    "input_prompt": ["-- INSERT --", "❯"],
+    "generating": ["thinking", "Generating", "streaming"],
+    "exited": ["mserver", "fish"],
+    "permission": ["Do you want to", "(y/n)", "Allow", "Deny"],
 }
 
 class SessionDead(Exception):
@@ -70,6 +70,8 @@ async def _tmux_exec(*args: str, check_pane: bool = False) -> str:
 async def _capture_pane(pane_id: str) -> str:
     """捕获 pane 可见内容并过滤控制字符。"""
     raw = await _tmux_exec("capture-pane", "-t", pane_id, "-p", check_pane=True)
+    if "Pane is dead" in raw:
+        raise SessionDead("pane is dead")
     text = ANSI_ESCAPE_RE.sub("", raw)
     text = CONTROL_CHAR_RE.sub("", text)
     return text
