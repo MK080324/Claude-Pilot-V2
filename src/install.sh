@@ -2,11 +2,11 @@
 set -euo pipefail
 
 INSTALL_DIR="${HOME}/.claude-pilot"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://github.com/MK080324/Claude-Pilot-V2.git"
 
 check_deps() {
     local missing=()
-    for cmd in claude tmux python3; do
+    for cmd in git claude tmux python3; do
         if ! command -v "$cmd" &>/dev/null; then
             missing+=("$cmd")
         fi
@@ -16,15 +16,17 @@ check_deps() {
         echo "请先安装后再运行安装脚本。" >&2
         return 1
     fi
-    echo "依赖检测通过: claude, tmux, python3"
+    echo "依赖检测通过: git, claude, tmux, python3"
 }
 
 setup_venv() {
-    echo "正在部署文件到 ${INSTALL_DIR} ..."
-    mkdir -p "${INSTALL_DIR}"
-
-    # 开发期从 src/ 复制文件
-    cp -r "${SCRIPT_DIR}/." "${INSTALL_DIR}/"
+    if [[ -d "${INSTALL_DIR}/.git" ]]; then
+        echo "正在更新 ${INSTALL_DIR} ..."
+        git -C "${INSTALL_DIR}" pull --ff-only
+    else
+        echo "正在克隆项目到 ${INSTALL_DIR} ..."
+        git clone --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
+    fi
 
     echo "正在创建 Python 虚拟环境 ..."
     python3 -m venv "${INSTALL_DIR}/.venv"
@@ -81,12 +83,13 @@ import json, os, sys
 
 settings_file = os.path.expanduser('~/.claude/settings.json')
 install_dir = os.path.expanduser('~/.claude-pilot')
+src_dir = os.path.join(install_dir, 'src')
 
 new_hooks = {
-    'session_start': [{'command': f'python3 {install_dir}/hooks/session_start.py'}],
-    'stop': [{'command': f'python3 {install_dir}/hooks/stop.py'}],
-    'notification': [{'command': f'python3 {install_dir}/hooks/notification.py'}],
-    'permission': [{'command': f'python3 {install_dir}/hooks/permission.py', 'timeout': 120}],
+    'session_start': [{'command': f'python3 {src_dir}/hooks/session_start.py'}],
+    'stop': [{'command': f'python3 {src_dir}/hooks/stop.py'}],
+    'notification': [{'command': f'python3 {src_dir}/hooks/notification.py'}],
+    'permission': [{'command': f'python3 {src_dir}/hooks/permission.py', 'timeout': 120}],
 }
 
 if os.path.exists(settings_file):
@@ -124,7 +127,7 @@ print('hooks 合并完成')
 }
 
 install_cli() {
-    local cli_src="${INSTALL_DIR}/claude-pilot"
+    local cli_src="${INSTALL_DIR}/src/claude-pilot"
     chmod +x "$cli_src"
 
     # 优先安装到 /usr/local/bin，否则安装到 ~/.local/bin
