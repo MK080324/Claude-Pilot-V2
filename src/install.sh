@@ -42,14 +42,14 @@ collect_config() {
     echo "=== 配置 Claude Pilot ==="
 
     while [[ -z "${BOT_TOKEN:-}" ]]; do
-        read -r -p "请输入 Telegram Bot Token: " BOT_TOKEN
+        read -r -p "请输入 Telegram Bot Token: " BOT_TOKEN </dev/tty
         if [[ -z "$BOT_TOKEN" ]]; then
             echo "Bot Token 不能为空，请重新输入。"
         fi
     done
 
     while [[ -z "${ALLOWED_USERS:-}" ]]; do
-        read -r -p "请输入允许的 Telegram User ID（多个用逗号分隔）: " ALLOWED_USERS
+        read -r -p "请输入允许的 Telegram User ID（多个用逗号分隔）: " ALLOWED_USERS </dev/tty
         if [[ -z "$ALLOWED_USERS" ]]; then
             echo "User ID 不能为空，请重新输入。"
         fi
