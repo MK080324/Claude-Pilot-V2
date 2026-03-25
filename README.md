@@ -7,7 +7,7 @@
 确保已装好 [Claude Code](https://claude.ai/claude-code)、tmux 和 Python 3.10+，然后一行搞定：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MK080324/Claude-Pilot-V2/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MK080324/Claude-Pilot-V2/main/src/install.sh | bash
 ```
 
 脚本会引导你输入 Telegram Bot Token（从 [@BotFather](https://t.me/BotFather) 获取），装完即用。
