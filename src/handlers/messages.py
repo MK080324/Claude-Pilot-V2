@@ -19,8 +19,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not update.message.message_thread_id:
         if update.effective_chat and update.effective_chat.type == "private":
             await update.message.reply_text(
-                "请先完成配置：创建群组 → 加入 Bot → 群组中发 /setup\n"
-                "详细步骤请发 /start"
+                "请先完成配置，发 /start 查看完整步骤。"
             )
         return
     topic_id = update.message.message_thread_id

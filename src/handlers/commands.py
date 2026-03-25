@@ -55,11 +55,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     save_state(state, sp)
     welcome = (
         "👋 欢迎使用 <b>Claude Pilot</b>！\n\n"
-        "请按以下步骤完成配置：\n"
-        "1. 创建一个 Telegram 群组\n"
-        "2. 将本 Bot 加入群组并设为管理员\n"
-        "3. 在群组中发送 /setup\n\n"
-        "配置完成后，每个 Claude Code 会话都会自动推送到群组话题中。"
+        "<b>一、配置 Bot（在 @BotFather 中操作）</b>\n"
+        "1. 发送 /mybots → 选择本 Bot\n"
+        "2. Bot Settings → Group Privacy → <b>Turn off</b>\n"
+        "3. Bot Settings → Allow Groups → 确认已开启\n\n"
+        "<b>二、创建群组</b>\n"
+        "4. 新建一个 Telegram 群组\n"
+        "5. 群组设置 → 开启「话题」功能\n"
+        "6. 将本 Bot 加入群组并设为<b>管理员</b>\n\n"
+        "<b>三、完成配置</b>\n"
+        "7. 在群组中发送 /setup\n\n"
+        "全部完成后，每个 Claude Code 会话都会自动推送到群组话题中。"
     )
     await update.message.reply_text(welcome, parse_mode="HTML")
 
