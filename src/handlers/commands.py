@@ -33,7 +33,19 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     state.group_chat_id = update.effective_chat.id
     save_state(state, sp)
-    await update.message.reply_text("群组已配置")
+    setup_msg = (
+        "✅ <b>群组已配置完成！</b>\n\n"
+        "请确认以下设置：\n"
+        "1. Bot 已被设为群组管理员\n"
+        "2. 群组已开启「话题」功能（群组设置 → 话题）\n\n"
+        "配置就绪后，每个 Claude Code 会话将自动创建话题推送对话。\n"
+        "常用命令：\n"
+        "• /projects — 选择项目启动新会话\n"
+        "• /status — 查看运行状态\n"
+        "• /bypass — 跳过权限审批\n"
+        "• 在话题中直接发消息即可向 Claude 输入"
+    )
+    await update.message.reply_text(setup_msg, parse_mode="HTML")
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     config, state, sp = _ctx(context)
