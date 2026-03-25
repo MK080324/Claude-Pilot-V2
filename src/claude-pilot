@@ -1,43 +1,118 @@
 #!/usr/bin/env python3
 """claude-pilot CLI 管理工具。"""
 from __future__ import annotations
-
 import argparse
+import os
+import signal
+import subprocess
 import sys
+
+BASE_DIR = os.environ.get("CLAUDE_PILOT_DIR", os.path.expanduser("~/.claude-pilot"))
+PLIST_LABEL = "com.claude-pilot"
+PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{PLIST_LABEL}.plist")
+PID_PATH = os.path.join(BASE_DIR, ".pid")
+LOG_PATH = os.path.join(BASE_DIR, "bot.log")
+
+
+def _read_pid() -> int | None:
+    try:
+        with open(PID_PATH) as f:
+            return int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _check_pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def cmd_start(args: argparse.Namespace) -> None:
-    """启动 Bot。"""
-    raise NotImplementedError
+    pid = _read_pid()
+    if pid and _check_pid_alive(pid):
+        print(f"已在运行 (PID: {pid})")
+        return
+    bot_py = os.path.join(BASE_DIR, "bot.py")
+    python = sys.executable
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", "claude-pilot",
+         f"{python} {bot_py} >> {LOG_PATH} 2>&1"],
+        check=False,
+    )
+    print("已启动")
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
-    """停止 Bot。"""
-    raise NotImplementedError
+    pid = _read_pid()
+    if not pid:
+        print("未运行")
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+        print(f"已发送停止信号 (PID: {pid})")
+    except OSError:
+        print("进程不存在")
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    """查看状态。"""
-    raise NotImplementedError
+    pid = _read_pid()
+    if pid and _check_pid_alive(pid):
+        print(f"运行中 (PID: {pid})")
+    else:
+        print("未运行")
 
 
 def cmd_enable(args: argparse.Namespace) -> None:
-    """启用 launchd 自动启动。"""
-    raise NotImplementedError
+    bot_py = os.path.join(BASE_DIR, "bot.py")
+    python = sys.executable
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{python}</string>
+        <string>{bot_py}</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>{LOG_PATH}</string>
+    <key>StandardErrorPath</key>
+    <string>{LOG_PATH}</string>
+</dict>
+</plist>"""
+    os.makedirs(os.path.dirname(PLIST_PATH), exist_ok=True)
+    with open(PLIST_PATH, "w") as f:
+        f.write(plist)
+    subprocess.run(["launchctl", "load", PLIST_PATH], check=False)
+    print("已启用 launchd 自动启动")
 
 
 def cmd_disable(args: argparse.Namespace) -> None:
-    """禁用 launchd 自动启动。"""
-    raise NotImplementedError
+    if os.path.exists(PLIST_PATH):
+        subprocess.run(["launchctl", "unload", PLIST_PATH], check=False)
+        os.unlink(PLIST_PATH)
+        print("已禁用 launchd 自动启动")
+    else:
+        print("未启用")
 
 
 def cmd_logs(args: argparse.Namespace) -> None:
-    """查看日志。"""
-    raise NotImplementedError
+    os.execvp("tail", ["tail", "-f", LOG_PATH])
 
 
 def main() -> None:
-    """CLI 入口。"""
     parser = argparse.ArgumentParser(prog="claude-pilot", description="Claude Pilot v2 管理工具")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("start", help="启动 Bot")
@@ -46,7 +121,6 @@ def main() -> None:
     sub.add_parser("enable", help="启用 launchd")
     sub.add_parser("disable", help="禁用 launchd")
     sub.add_parser("logs", help="查看日志")
-
     args = parser.parse_args()
     commands = {
         "start": cmd_start, "stop": cmd_stop, "status": cmd_status,
