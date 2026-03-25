@@ -90,19 +90,6 @@ async def _load_buffer_paste(pane_id: str, text: str) -> None:
         os.unlink(tmp)
 
 
-async def _wait_for_state(
-    pane_id: str, target_state: TuiState, timeout: float = 10.0
-) -> bool:
-    """轮询等待目标状态。"""
-    elapsed = 0.0
-    while elapsed < timeout:
-        state = await detect_tui_state(pane_id)
-        if state == target_state:
-            return True
-        await asyncio.sleep(0.3)
-        elapsed += 0.3
-    return False
-
 
 async def detect_tui_state(pane_id: str) -> TuiState:
     """捕获 pane 内容并识别 TUI 状态。"""
@@ -126,18 +113,33 @@ async def detect_tui_state(pane_id: str) -> TuiState:
     return TuiState.GENERATING
 
 
+SESSIONS_TMUX = "cp-sessions"
+
+async def _ensure_sessions_tmux() -> None:
+    """确保 Claude 会话用的 tmux session 存在。"""
+    proc = await asyncio.create_subprocess_exec(
+        "tmux", "has-session", "-t", SESSIONS_TMUX,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+    if proc.returncode != 0:
+        await _tmux_exec("new-session", "-d", "-s", SESSIONS_TMUX)
+
 async def launch_session(
     project_dir: str, state: State, bot: object
 ) -> SessionInfo:
-    """创建 tmux 窗口并启动 Claude。"""
+    """在独立 tmux session 中创建窗口并启动 Claude。"""
+    await _ensure_sessions_tmux()
     session_id = uuid.uuid4().hex[:8]
     window_name = f"cp-{session_id}"
     await _tmux_exec(
-        "new-window", "-d", "-n", window_name,
+        "new-window", "-d", "-t", SESSIONS_TMUX,
+        "-n", window_name,
         f"cd {project_dir} && claude",
     )
     pane_out = await _tmux_exec(
-        "list-panes", "-t", window_name, "-F", "#{pane_id}",
+        "list-panes", "-t", f"{SESSIONS_TMUX}:{window_name}",
+        "-F", "#{pane_id}",
     )
     pane_id = pane_out.strip().splitlines()[0] if pane_out.strip() else None
     transcript_path = f"{project_dir}/.claude/transcript.jsonl"
