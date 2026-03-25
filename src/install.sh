@@ -20,13 +20,18 @@ check_deps() {
 }
 
 setup_venv() {
-    if [[ -d "${INSTALL_DIR}/.git" ]]; then
-        echo "正在更新 ${INSTALL_DIR} ..."
-        git -C "${INSTALL_DIR}" pull --ff-only
-    else
-        echo "正在克隆项目到 ${INSTALL_DIR} ..."
-        git clone --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
-    fi
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+
+    echo "正在克隆项目 ..."
+    git clone --depth 1 "${REPO_URL}" "${tmp_dir}/repo"
+
+    echo "正在部署文件到 ${INSTALL_DIR} ..."
+    mkdir -p "${INSTALL_DIR}"
+    # 将 src/ 内容平铺到安装目录，保持 CLI/hooks 期望的路径结构
+    cp -r "${tmp_dir}/repo/src/." "${INSTALL_DIR}/"
+    cp "${tmp_dir}/repo/requirements.txt" "${INSTALL_DIR}/"
+    rm -rf "${tmp_dir}"
 
     echo "正在创建 Python 虚拟环境 ..."
     python3 -m venv "${INSTALL_DIR}/.venv"
@@ -83,13 +88,12 @@ import json, os, sys
 
 settings_file = os.path.expanduser('~/.claude/settings.json')
 install_dir = os.path.expanduser('~/.claude-pilot')
-src_dir = os.path.join(install_dir, 'src')
 
 new_hooks = {
-    'session_start': [{'command': f'python3 {src_dir}/hooks/session_start.py'}],
-    'stop': [{'command': f'python3 {src_dir}/hooks/stop.py'}],
-    'notification': [{'command': f'python3 {src_dir}/hooks/notification.py'}],
-    'permission': [{'command': f'python3 {src_dir}/hooks/permission.py', 'timeout': 120}],
+    'session_start': [{'command': f'python3 {install_dir}/hooks/session_start.py'}],
+    'stop': [{'command': f'python3 {install_dir}/hooks/stop.py'}],
+    'notification': [{'command': f'python3 {install_dir}/hooks/notification.py'}],
+    'permission': [{'command': f'python3 {install_dir}/hooks/permission.py', 'timeout': 120}],
 }
 
 if os.path.exists(settings_file):
@@ -127,7 +131,7 @@ print('hooks 合并完成')
 }
 
 install_cli() {
-    local cli_src="${INSTALL_DIR}/src/claude-pilot"
+    local cli_src="${INSTALL_DIR}/claude-pilot"
     chmod +x "$cli_src"
 
     # 优先安装到 /usr/local/bin，否则安装到 ~/.local/bin
