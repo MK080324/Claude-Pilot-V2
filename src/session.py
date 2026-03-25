@@ -132,7 +132,7 @@ async def launch_session(
     window_name = f"cp-{session_id}"
     await _tmux_exec(
         "new-window", "-d", "-n", window_name,
-        f"cd {project_dir} && claude --resume",
+        f"cd {project_dir} && claude",
     )
     pane_out = await _tmux_exec(
         "list-panes", "-t", window_name, "-F", "#{pane_id}",

@@ -26,23 +26,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         return
     topic_id = update.message.message_thread_id
-    logger.info("Message in topic %s, text: %s", topic_id, (update.message.text or "")[:50])
     session_id: str | None = None
     for sid, tid in state.session_topics.items():
         if tid == topic_id:
             session_id = sid
             break
-    logger.info("Matched session: %s, topics: %s", session_id, state.session_topics)
     if not session_id or session_id not in state.sessions:
         await update.message.reply_text("此话题无关联会话，请使用 /projects 创建")
         return
     pane_id = state.sessions[session_id].get("pane_id")
     if not pane_id:
+        await update.message.reply_text("会话无 pane，请重新创建")
         return
     async with session.get_topic_lock(topic_id):
         try:
             await session.inject_message(pane_id, update.message.text)
+            await update.message.reply_text("✓ 已发送")
         except session.SessionDead:
-            await update.message.reply_text("会话已结束")
+            await update.message.reply_text("✗ 会话已结束，请用 /projects 重新创建")
         except session.PermissionPending:
-            await update.message.reply_text("请先处理权限请求")
+            await update.message.reply_text("⏳ 请先处理权限请求")
+        except Exception as e:
+            logger.exception("inject_message failed")
+            await update.message.reply_text(f"✗ 发送失败: {e}")
