@@ -1,11 +1,14 @@
 """普通消息处理。"""
 from __future__ import annotations
 
+import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
 import session
 from config import Config, State
+
+logger = logging.getLogger(__name__)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -23,11 +26,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         return
     topic_id = update.message.message_thread_id
+    logger.info("Message in topic %s, text: %s", topic_id, (update.message.text or "")[:50])
     session_id: str | None = None
     for sid, tid in state.session_topics.items():
         if tid == topic_id:
             session_id = sid
             break
+    logger.info("Matched session: %s, topics: %s", session_id, state.session_topics)
     if not session_id or session_id not in state.sessions:
         await update.message.reply_text("此话题无关联会话，请使用 /projects 创建")
         return

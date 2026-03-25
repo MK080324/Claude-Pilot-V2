@@ -35,6 +35,9 @@ def cmd_start(args: argparse.Namespace) -> None:
     if pid and _check_pid_alive(pid):
         print(f"已在运行 (PID: {pid})")
         return
+    # 清理残留的 tmux session（可能已死）
+    subprocess.run(["tmux", "kill-session", "-t", "claude-pilot"],
+                   capture_output=True, check=False)
     bot_py = os.path.join(BASE_DIR, "bot.py")
     python = os.path.join(BASE_DIR, ".venv", "bin", "python3")
     subprocess.run(

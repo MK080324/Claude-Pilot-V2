@@ -54,20 +54,22 @@ def get_tmux_lock(pane_id: str) -> asyncio.Lock:
     return _tmux_locks[pane_id]
 
 
-async def _tmux_exec(*args: str) -> str:
+async def _tmux_exec(*args: str, check_pane: bool = False) -> str:
     """底层 tmux 命令执行封装。"""
     proc = await asyncio.create_subprocess_exec(
         "tmux", *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, _ = await proc.communicate()
+    stdout, stderr = await proc.communicate()
+    if check_pane and proc.returncode != 0:
+        raise SessionDead("pane not found")
     return stdout.decode("utf-8", errors="replace")
 
 
 async def _capture_pane(pane_id: str) -> str:
     """捕获 pane 可见内容并过滤控制字符。"""
-    raw = await _tmux_exec("capture-pane", "-t", pane_id, "-p")
+    raw = await _tmux_exec("capture-pane", "-t", pane_id, "-p", check_pane=True)
     text = ANSI_ESCAPE_RE.sub("", raw)
     text = CONTROL_CHAR_RE.sub("", text)
     return text
