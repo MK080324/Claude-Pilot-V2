@@ -36,7 +36,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         print(f"已在运行 (PID: {pid})")
         return
     bot_py = os.path.join(BASE_DIR, "bot.py")
-    python = sys.executable
+    python = os.path.join(BASE_DIR, ".venv", "bin", "python3")
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", "claude-pilot",
          f"{python} {bot_py} >> {LOG_PATH} 2>&1"],
@@ -67,7 +67,7 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_enable(args: argparse.Namespace) -> None:
     bot_py = os.path.join(BASE_DIR, "bot.py")
-    python = sys.executable
+    python = os.path.join(BASE_DIR, ".venv", "bin", "python3")
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
 "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
