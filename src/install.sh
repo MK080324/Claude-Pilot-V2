@@ -89,11 +89,14 @@ import json, os, sys
 settings_file = os.path.expanduser('~/.claude/settings.json')
 install_dir = os.path.expanduser('~/.claude-pilot')
 
+def make_hook(cmd, timeout=10):
+    return {'matcher': '', 'hooks': [{'type': 'command', 'command': cmd, 'timeout': timeout}]}
+
 new_hooks = {
-    'session_start': [{'command': f'python3 {install_dir}/hooks/session_start.py'}],
-    'stop': [{'command': f'python3 {install_dir}/hooks/stop.py'}],
-    'notification': [{'command': f'python3 {install_dir}/hooks/notification.py'}],
-    'permission': [{'command': f'python3 {install_dir}/hooks/permission.py', 'timeout': 120}],
+    'SessionStart': [make_hook(f'python3 {install_dir}/hooks/session_start.py')],
+    'Stop': [make_hook(f'python3 {install_dir}/hooks/stop.py')],
+    'Notification': [make_hook(f'python3 {install_dir}/hooks/notification.py')],
+    'PreToolUse': [make_hook(f'python3 {install_dir}/hooks/permission.py', 130)],
 }
 
 if os.path.exists(settings_file):
@@ -107,17 +110,17 @@ else:
 
 existing_hooks = settings.get('hooks', {})
 
-# 合并：仅添加不存在的 hook 条目，不覆盖已有
+# 合并：检查是否已有同命令的 hook，避免重复
 for hook_name, hook_entries in new_hooks.items():
     if hook_name not in existing_hooks:
         existing_hooks[hook_name] = hook_entries
     else:
-        existing_cmds = {
-            (e.get('command', '') if isinstance(e, dict) else e)
-            for e in existing_hooks[hook_name]
-        }
+        existing_cmds = set()
+        for rule in existing_hooks[hook_name]:
+            for h in rule.get('hooks', []):
+                existing_cmds.add(h.get('command', ''))
         for entry in hook_entries:
-            cmd = entry.get('command', '') if isinstance(entry, dict) else entry
+            cmd = entry['hooks'][0]['command']
             if cmd not in existing_cmds:
                 existing_hooks[hook_name].append(entry)
 
