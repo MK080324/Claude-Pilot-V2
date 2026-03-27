@@ -2,12 +2,9 @@
 from __future__ import annotations
 import importlib
 import os
-import sys
 from unittest.mock import patch, MagicMock
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Import the CLI module (file without .py extension)
 import importlib.util
@@ -25,7 +22,7 @@ def test_help_contains_subcommands(capsys):
             cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    for cmd in ("start", "stop", "status", "enable", "disable", "logs"):
+    for cmd in ("start", "stop", "status", "enable", "disable", "logs", "uninstall"):
         assert cmd in out
 
 
@@ -94,3 +91,83 @@ def test_disable_removes_plist(tmp_path):
         cli.cmd_disable(MagicMock())
         mock_run.assert_called_once()
     assert not os.path.exists(plist_path)
+
+
+def test_uninstall_with_backup(capsys, tmp_path):
+    """卸载时从备份恢复 settings.json。"""
+    import json
+    base_dir = tmp_path / "claude-pilot"
+    base_dir.mkdir()
+    pid_file = base_dir / ".pid"
+
+    # 准备备份文件
+    backup = base_dir / "settings.json.backup"
+    original_settings = {"theme": "dark"}
+    backup.write_text(json.dumps(original_settings))
+
+    # 准备当前被修改过的 settings
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    settings_file = claude_dir / "settings.json"
+    settings_file.write_text(json.dumps({"hooks": {"SessionStart": []}}))
+
+    with patch.object(cli, "BASE_DIR", str(base_dir)), \
+         patch.object(cli, "PID_PATH", str(pid_file)), \
+         patch.object(cli, "PLIST_PATH", str(tmp_path / "plist")), \
+         patch("os.path.expanduser", side_effect=lambda p: str(tmp_path / p.lstrip("~/"))), \
+         patch("subprocess.run"):
+        cli.cmd_uninstall(MagicMock())
+
+    # settings 应被恢复为备份内容
+    restored = json.loads(settings_file.read_text())
+    assert restored == original_settings
+    out = capsys.readouterr().out
+    assert "已从备份恢复" in out
+
+
+def test_uninstall_without_backup_removes_hooks(capsys, tmp_path):
+    """无备份时，从 settings.json 中移除 claude-pilot hooks。"""
+    import json
+    base_dir = tmp_path / "claude-pilot"
+    base_dir.mkdir()
+    pid_file = base_dir / ".pid"
+
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    settings_file = claude_dir / "settings.json"
+    pilot_hook_cmd = str(base_dir / "hooks" / "session_start.py")
+    settings_file.write_text(json.dumps({
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": f"python3 {pilot_hook_cmd}"}]}],
+            "CustomHook": [{"hooks": [{"type": "command", "command": "echo hi"}]}],
+        },
+        "other": "value",
+    }))
+
+    with patch.object(cli, "BASE_DIR", str(base_dir)), \
+         patch.object(cli, "PID_PATH", str(pid_file)), \
+         patch.object(cli, "PLIST_PATH", str(tmp_path / "plist")), \
+         patch("os.path.expanduser", side_effect=lambda p: str(tmp_path / p.lstrip("~/"))), \
+         patch("subprocess.run"):
+        cli.cmd_uninstall(MagicMock())
+
+    restored = json.loads(settings_file.read_text())
+    assert "SessionStart" not in restored.get("hooks", {})
+    assert "CustomHook" in restored.get("hooks", {})
+    assert restored["other"] == "value"
+
+
+def test_uninstall_deletes_base_dir(tmp_path):
+    """卸载后项目目录被删除。"""
+    base_dir = tmp_path / "claude-pilot"
+    base_dir.mkdir()
+    (base_dir / "bot.py").write_text("# bot")
+
+    with patch.object(cli, "BASE_DIR", str(base_dir)), \
+         patch.object(cli, "PID_PATH", str(base_dir / ".pid")), \
+         patch.object(cli, "PLIST_PATH", str(tmp_path / "plist")), \
+         patch("os.path.expanduser", side_effect=lambda p: str(tmp_path / p.lstrip("~/"))), \
+         patch("subprocess.run"):
+        cli.cmd_uninstall(MagicMock())
+
+    assert not base_dir.exists()

@@ -1,13 +1,9 @@
 """messages.py 单元测试。"""
 from __future__ import annotations
 
-import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from config import Config, State
 from handlers.messages import handle_message
@@ -78,7 +74,8 @@ async def test_session_dead_message():
         lock.__aexit__ = AsyncMock(return_value=False)
         mock_lock.return_value = lock
         await handle_message(update, ctx)
-    update.message.reply_text.assert_called_with("会话已结束")
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "会话已结束" in call_text
 
 
 @pytest.mark.asyncio
@@ -94,7 +91,8 @@ async def test_permission_pending_message():
         lock.__aexit__ = AsyncMock(return_value=False)
         mock_lock.return_value = lock
         await handle_message(update, ctx)
-    update.message.reply_text.assert_called_with("请先处理权限请求")
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "权限请求" in call_text
 
 
 @pytest.mark.asyncio
@@ -103,4 +101,59 @@ async def test_no_pane_id_returns_early():
     state.session_topics["s1"] = 100
     state.sessions["s1"] = {"pane_id": None}
     await handle_message(update, ctx)
-    update.message.reply_text.assert_not_called()
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "pane" in call_text.lower() or "重新创建" in call_text
+
+
+@pytest.mark.asyncio
+async def test_inject_generic_exception():
+    """inject_message 抛出未知异常时回复错误信息。"""
+    update, ctx, _, state = _make_update_context()
+    state.session_topics["s1"] = 100
+    state.sessions["s1"] = {"pane_id": "%1"}
+    with patch("session.inject_message", new_callable=AsyncMock,
+               side_effect=RuntimeError("tmux broken")), \
+         patch("session.get_topic_lock") as mock_lock:
+        lock = AsyncMock()
+        lock.__aenter__ = AsyncMock(return_value=None)
+        lock.__aexit__ = AsyncMock(return_value=False)
+        mock_lock.return_value = lock
+        await handle_message(update, ctx)
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "发送失败" in call_text
+
+
+@pytest.mark.asyncio
+async def test_inject_success_reply():
+    """inject 成功后回复确认消息。"""
+    update, ctx, _, state = _make_update_context()
+    state.session_topics["s1"] = 100
+    state.sessions["s1"] = {"pane_id": "%1"}
+    with patch("session.inject_message", new_callable=AsyncMock) as mock_inject, \
+         patch("session.get_topic_lock") as mock_lock:
+        lock = AsyncMock()
+        lock.__aenter__ = AsyncMock(return_value=None)
+        lock.__aexit__ = AsyncMock(return_value=False)
+        mock_lock.return_value = lock
+        await handle_message(update, ctx)
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "已发送" in call_text
+
+
+@pytest.mark.asyncio
+async def test_private_chat_no_topic_shows_hint():
+    """私聊中无 topic 时提示先完成配置。"""
+    update, ctx, _, _ = _make_update_context(thread_id=None)
+    update.effective_chat.type = "private"
+    await handle_message(update, ctx)
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "/start" in call_text
+
+
+@pytest.mark.asyncio
+async def test_no_message_returns_early():
+    """update.message 为 None 时不报错。"""
+    update, ctx, _, _ = _make_update_context()
+    update.message = None
+    await handle_message(update, ctx)
+    # 不报错即可，无 reply_text 可调用

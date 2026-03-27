@@ -1,12 +1,8 @@
 """config.py 单元测试。"""
 import json
 import os
-import sys
-import tempfile
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from config import Config, SessionInfo, State, load_env, load_state, save_state
 
 

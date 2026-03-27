@@ -3,13 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, "src")
 
 
 @pytest.fixture
@@ -166,10 +163,12 @@ async def test_check_tui_state_permission():
     with patch("watcher.detect_tui_state", new_callable=AsyncMock) as mock_det:
         from session import TuiState
         mock_det.return_value = TuiState.PERMISSION_PROMPT
-        await _check_tui_state("pane1", 100, 200, "sess1", bot)
+        perm_sent = set()
+        await _check_tui_state("pane1", 100, 200, "sess1", bot, perm_sent)
     bot.send_message.assert_called_once()
     call_kwargs = bot.send_message.call_args.kwargs
     assert "reply_markup" in call_kwargs
+    assert "sess1" in perm_sent
 
 
 @pytest.mark.asyncio
@@ -180,8 +179,10 @@ async def test_check_tui_state_no_permission():
     with patch("watcher.detect_tui_state", new_callable=AsyncMock) as mock_det:
         from session import TuiState
         mock_det.return_value = TuiState.GENERATING
-        await _check_tui_state("pane1", 100, 200, "sess1", bot)
+        perm_sent = set()
+        await _check_tui_state("pane1", 100, 200, "sess1", bot, perm_sent)
     bot.send_message.assert_not_called()
+    assert "sess1" not in perm_sent
 
 
 # --- start_watcher / stop_watcher ---

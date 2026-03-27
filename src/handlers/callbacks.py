@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 import session
 import watcher
 from api import pending_permissions
-from config import State, save_state
+from config import Config, State, save_state
 
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -67,9 +67,15 @@ async def _handle_tui(query: object, sid: str, state: State, *, allow: bool) -> 
 
 
 async def _handle_project(
-    query: object, path: str, state: State, base_dir: str,
+    query: object, dir_name: str, state: State, base_dir: str,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    config: Config = context.bot_data["config"]
+    proj_dir = state.project_dir or config.project_dir
+    path = os.path.realpath(os.path.join(proj_dir, dir_name))
+    if not path.startswith(os.path.realpath(proj_dir) + os.sep):
+        await query.edit_message_text("无效的项目路径")
+        return
     chat_id = query.message.chat_id
     info = await session.launch_session(path, state, context.bot)
     topic = await context.bot.create_forum_topic(chat_id, name=f"Claude-{info.session_id}")

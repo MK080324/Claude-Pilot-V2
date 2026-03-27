@@ -1,15 +1,19 @@
 """api.py 单元测试。"""
 import asyncio
-import os
-import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from api import PermissionRequest, create_api_app, pending_permissions
 from config import State
+
+
+def _mock_bot():
+    bot = AsyncMock()
+    topic = MagicMock()
+    topic.message_thread_id = 99
+    bot.create_forum_topic.return_value = topic
+    return bot
 
 
 @pytest.fixture
@@ -20,7 +24,7 @@ def state():
 
 @pytest.fixture
 async def client(state):
-    app = create_api_app(state, MagicMock())
+    app = create_api_app(state, _mock_bot())
     app["permission_timeout"] = 1
     async with TestClient(TestServer(app)) as c:
         yield c
@@ -58,7 +62,7 @@ async def test_session_start_exists(client):
 
 @pytest.mark.asyncio
 async def test_session_start_no_group():
-    app = create_api_app(State(), MagicMock())
+    app = create_api_app(State(), _mock_bot())
     async with TestClient(TestServer(app)) as c:
         resp = await c.post("/session_start", json={
             "session_id": "deadbeef", "transcript_path": "/tmp/t.jsonl",
@@ -107,7 +111,7 @@ async def test_permission_timeout(client):
 
 @pytest.mark.asyncio
 async def test_permission_allow():
-    app = create_api_app(State(group_chat_id=1), MagicMock())
+    app = create_api_app(State(group_chat_id=1), _mock_bot())
     app["permission_timeout"] = 5
     async with TestClient(TestServer(app)) as c:
         async def approve():
@@ -137,7 +141,7 @@ async def test_notification(client):
 
 @pytest.mark.asyncio
 async def test_bind_host(state):
-    app = create_api_app(state, MagicMock())
+    app = create_api_app(state, _mock_bot())
     assert app["host"] == "127.0.0.1"
 
 

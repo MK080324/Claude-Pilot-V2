@@ -2,16 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 from api import PermissionRequest, pending_permissions
-from config import State
+from config import Config, State
 from handlers.callbacks import handle_button
 
 
@@ -25,9 +21,10 @@ def _make_update_context(callback_data: str, chat_id: int = 456) -> tuple:
     update = MagicMock()
     update.callback_query = query
 
-    state = State()
+    state = State(project_dir="/tmp")
+    config = Config(bot_token="t", allowed_users=[123], project_dir="/tmp")
     context = MagicMock()
-    context.bot_data = {"state": state, "base_dir": "/tmp"}
+    context.bot_data = {"state": state, "base_dir": "/tmp", "config": config}
     context.bot = AsyncMock()
     return update, context, state, query
 
@@ -96,7 +93,7 @@ async def test_tui_session_not_found():
 
 @pytest.mark.asyncio
 async def test_project_launches_session():
-    update, ctx, state, query = _make_update_context("project:/tmp/proj")
+    update, ctx, state, query = _make_update_context("project:proj")
     mock_info = MagicMock()
     mock_info.session_id = "abc"
     mock_info.pane_id = "%1"

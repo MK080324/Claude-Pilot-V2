@@ -4,14 +4,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from api import PermissionRequest, create_api_app, pending_permissions
 from config import State, load_env
@@ -26,9 +23,17 @@ def state_with_group():
     return State(group_chat_id=100)
 
 
+def _mock_bot():
+    bot = AsyncMock()
+    topic = MagicMock()
+    topic.message_thread_id = 99
+    bot.create_forum_topic.return_value = topic
+    return bot
+
+
 @pytest.fixture
 async def api_client(state_with_group):
-    app = create_api_app(state_with_group, MagicMock())
+    app = create_api_app(state_with_group, _mock_bot())
     app["permission_timeout"] = 2
     async with TestClient(TestServer(app)) as c:
         yield c
@@ -51,7 +56,7 @@ async def test_hook_api_session_start_created(api_client):
 @pytest.mark.asyncio
 async def test_hook_api_session_start_no_group():
     """无 group_chat_id 时返回 no_group。"""
-    app = create_api_app(State(), MagicMock())
+    app = create_api_app(State(), _mock_bot())
     async with TestClient(TestServer(app)) as c:
         resp = await c.post("/session_start", json={
             "session_id": "deadbeef",
@@ -139,7 +144,7 @@ async def test_message_inject_auth_rejected():
 @pytest.mark.asyncio
 async def test_permission_full_pipeline_allow():
     """POST /permission -> 模拟 callback allow -> 返回 decision=allow。"""
-    app = create_api_app(State(group_chat_id=1), MagicMock())
+    app = create_api_app(State(group_chat_id=1), _mock_bot())
     app["permission_timeout"] = 5
 
     async with TestClient(TestServer(app)) as c:
@@ -165,7 +170,7 @@ async def test_permission_full_pipeline_allow():
 @pytest.mark.asyncio
 async def test_permission_full_pipeline_deny():
     """POST /permission -> 模拟 callback deny -> 返回 decision=deny。"""
-    app = create_api_app(State(group_chat_id=1), MagicMock())
+    app = create_api_app(State(group_chat_id=1), _mock_bot())
     app["permission_timeout"] = 5
 
     async with TestClient(TestServer(app)) as c:
@@ -190,7 +195,7 @@ async def test_permission_full_pipeline_deny():
 @pytest.mark.asyncio
 async def test_permission_timeout_returns_deny():
     """超时未审批时自动返回 deny。"""
-    app = create_api_app(State(group_chat_id=1), MagicMock())
+    app = create_api_app(State(group_chat_id=1), _mock_bot())
     app["permission_timeout"] = 1
 
     async with TestClient(TestServer(app)) as c:

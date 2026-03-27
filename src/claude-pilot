@@ -115,6 +115,65 @@ def cmd_logs(args: argparse.Namespace) -> None:
     os.execvp("tail", ["tail", "-f", LOG_PATH])
 
 
+def _remove_pilot_hooks(settings_file: str) -> None:
+    """从 settings.json 中移除 claude-pilot 相关 hooks。"""
+    import json
+    try:
+        with open(settings_file, "r", encoding="utf-8") as f:
+            settings = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
+    if "hooks" not in settings:
+        return
+    marker = os.path.join(BASE_DIR, "hooks")
+    for name in list(settings["hooks"]):
+        cleaned = [e for e in settings["hooks"][name]
+                   if not any(marker in h.get("command", "") for h in e.get("hooks", []))]
+        if cleaned:
+            settings["hooks"][name] = cleaned
+        else:
+            del settings["hooks"][name]
+    if not settings.get("hooks"):
+        settings.pop("hooks", None)
+    with open(settings_file, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+    print("已从 Claude Code 设置中移除 claude-pilot hooks")
+
+
+def cmd_uninstall(args: argparse.Namespace) -> None:
+    import shutil
+    pid = _read_pid()
+    if pid and _check_pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"已停止 Bot (PID: {pid})")
+        except OSError:
+            pass
+    if os.path.exists(PLIST_PATH):
+        subprocess.run(["launchctl", "unload", PLIST_PATH], capture_output=True, check=False)
+        os.unlink(PLIST_PATH)
+        print("已禁用 launchd 自动启动")
+    subprocess.run(["tmux", "kill-session", "-t", "claude-pilot"], capture_output=True, check=False)
+    settings_file = os.path.expanduser("~/.claude/settings.json")
+    backup_file = os.path.join(BASE_DIR, "settings.json.backup")
+    if os.path.exists(backup_file):
+        shutil.copy2(backup_file, settings_file)
+        print(f"已从备份恢复 Claude Code 设置: {backup_file} -> {settings_file}")
+    elif os.path.exists(settings_file):
+        _remove_pilot_hooks(settings_file)
+    for bin_path in ["/usr/local/bin/claude-pilot", os.path.expanduser("~/.local/bin/claude-pilot")]:
+        if os.path.exists(bin_path):
+            try:
+                os.unlink(bin_path)
+                print(f"已删除 CLI: {bin_path}")
+            except OSError as e:
+                print(f"无法删除 {bin_path}: {e}")
+    if os.path.exists(BASE_DIR):
+        shutil.rmtree(BASE_DIR)
+        print(f"已删除项目目录: {BASE_DIR}")
+    print("\nClaude Pilot 已完全卸载。")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="claude-pilot", description="Claude Pilot v2 管理工具")
     sub = parser.add_subparsers(dest="command")
@@ -124,10 +183,12 @@ def main() -> None:
     sub.add_parser("enable", help="启用 launchd")
     sub.add_parser("disable", help="禁用 launchd")
     sub.add_parser("logs", help="查看日志")
+    sub.add_parser("uninstall", help="完全卸载 Claude Pilot")
     args = parser.parse_args()
     commands = {
         "start": cmd_start, "stop": cmd_stop, "status": cmd_status,
         "enable": cmd_enable, "disable": cmd_disable, "logs": cmd_logs,
+        "uninstall": cmd_uninstall,
     }
     if args.command in commands:
         commands[args.command](args)

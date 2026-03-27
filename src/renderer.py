@@ -128,25 +128,54 @@ def _split_by_lines(text: str, limit: int) -> list[str]:
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
+_OPEN_TAG_RE = re.compile(r"<(\w+)[^>]*>")
+_CLOSE_TAG_RE = re.compile(r"</(\w+)>")
+
+
+def _fix_unclosed_tags(chunks: list[str]) -> list[str]:
+    """为切割后的分段补上缺失的闭合/开启标签。"""
+    if len(chunks) <= 1:
+        return chunks
+    result: list[str] = []
+    open_stack: list[str] = []
+    for i, chunk in enumerate(chunks):
+        if open_stack:
+            chunk = "".join(f"<{t}>" for t in open_stack) + chunk
+        open_stack = []
+        for m in _OPEN_TAG_RE.finditer(chunk):
+            open_stack.append(m.group(1))
+        for m in _CLOSE_TAG_RE.finditer(chunk):
+            tag = m.group(1)
+            if open_stack and open_stack[-1] == tag:
+                open_stack.pop()
+        if open_stack:
+            chunk += "".join(f"</{t}>" for t in reversed(open_stack))
+        result.append(chunk)
+    return result
+
+
+_TAG_MARGIN = 50  # 为闭合标签预留的字符余量
 
 
 def _hard_split(text: str, limit: int) -> list[str]:
-    """硬切超长行，不在 HTML 标签中间切。"""
+    """硬切超长行，不在 HTML 标签中间切，并修复标签闭合。"""
+    safe_limit = limit - _TAG_MARGIN
+    if safe_limit < 1:
+        safe_limit = limit
     chunks: list[str] = []
     while len(text) > limit:
-        cut = limit
-        # 检查是否在标签中间
+        cut = safe_limit
         for m in _TAG_RE.finditer(text):
             if m.start() < cut < m.end():
                 cut = m.start()
                 break
         if cut == 0:
-            cut = limit  # 无法避免，强制切
+            cut = safe_limit
         chunks.append(text[:cut])
         text = text[cut:]
     if text:
         chunks.append(text)
-    return chunks
+    return _fix_unclosed_tags(chunks)
 
 
 def format_tool_use(name: str, input_data: dict) -> str:

@@ -37,8 +37,8 @@ setup_venv() {
     python3 -m venv "${INSTALL_DIR}/.venv"
 
     echo "正在安装 Python 依赖 ..."
-    "${INSTALL_DIR}/.venv/bin/pip" install -q --upgrade pip
-    "${INSTALL_DIR}/.venv/bin/pip" install -q -r "${INSTALL_DIR}/requirements.txt"
+    "${INSTALL_DIR}/.venv/bin/pip" install -q --timeout 60 --upgrade pip 2>/dev/null || echo "提示: pip 升级跳过（不影响安装）"
+    "${INSTALL_DIR}/.venv/bin/pip" install -q --timeout 60 -r "${INSTALL_DIR}/requirements.txt"
     echo "Python 依赖安装完成"
 }
 
@@ -76,6 +76,18 @@ NOTIFY_CHAT_ID=
 EOF
     chmod 600 "$env_file"
     echo ".env 已写入: ${env_file}"
+}
+
+backup_settings() {
+    local settings_file="${HOME}/.claude/settings.json"
+    local backup_file="${INSTALL_DIR}/settings.json.backup"
+
+    if [[ -f "$settings_file" ]]; then
+        cp "$settings_file" "$backup_file"
+        echo "已备份原 Claude Code 设置文件到: ${backup_file}"
+    else
+        echo "未检测到已有 Claude Code 设置文件，跳过备份。"
+    fi
 }
 
 merge_hooks() {
@@ -157,6 +169,7 @@ main() {
     setup_venv
     collect_config
     write_env "$BOT_TOKEN" "$ALLOWED_USERS"
+    backup_settings
     merge_hooks
     install_cli
 

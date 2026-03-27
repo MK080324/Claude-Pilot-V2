@@ -6,6 +6,7 @@ import enum
 import glob
 import os
 import re
+import shlex
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -24,10 +25,13 @@ class TuiState(enum.Enum):
 CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
+try: _current_user = os.getlogin()
+except OSError: _current_user = os.environ.get("USER", "")
+
 TUI_PATTERNS: dict[str, list[str]] = {
     "input_prompt": ["-- INSERT --", "❯"],
     "generating": ["thinking", "Generating", "streaming"],
-    "exited": ["mserver", "fish"],
+    "exited": [p for p in [_current_user, "fish"] if p],
     "permission": ["Do you want to", "(y/n)", "Allow", "Deny"],
 }
 
@@ -88,10 +92,7 @@ async def _load_buffer_paste(pane_id: str, text: str) -> None:
         await _tmux_exec("load-buffer", tmp)
         await _tmux_exec("paste-buffer", "-t", pane_id)
     finally:
-        import os
         os.unlink(tmp)
-
-
 
 async def detect_tui_state(pane_id: str) -> TuiState:
     """捕获 pane 内容并识别 TUI 状态。"""
@@ -141,7 +142,7 @@ async def launch_session(
     await _tmux_exec(
         "new-window", "-d", "-t", SESSIONS_TMUX,
         "-n", window_name,
-        f"cd {project_dir} && claude",
+        f"cd {shlex.quote(project_dir)} && claude",
     )
     pane_out = await _tmux_exec(
         "list-panes", "-t", f"{SESSIONS_TMUX}:{window_name}",
@@ -196,5 +197,3 @@ async def respond_tui_permission(pane_id: str, allow: bool) -> None:
     """TUI 层权限响应（send-keys y/n）。"""
     key = "y" if allow else "n"
     await _tmux_exec("send-keys", "-t", pane_id, key, "")
-
-

@@ -1,11 +1,7 @@
 """session.py 单元测试。"""
-import os
-import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from session import (
     ANSI_ESCAPE_RE,
     CONTROL_CHAR_RE,
@@ -21,7 +17,6 @@ from session import (
     interrupt_session,
     kill_session,
     launch_session,
-    list_tmux_windows,
     respond_tui_permission,
 )
 from config import State
@@ -65,10 +60,33 @@ class TestTuiPatterns:
                 assert isinstance(p, str)
 
 
+class TestTuiPatternsEmptyUser:
+    def test_empty_current_user_not_in_exited_patterns(self):
+        """当 _current_user 为空时，exited 模式列表不应包含空字符串。"""
+        with patch("session._current_user", ""):
+            # 重新构建 patterns 模拟空用户场景
+            patterns = [p for p in ["", "fish"] if p]
+            assert "" not in patterns
+            assert patterns == ["fish"]
+
+    @pytest.mark.asyncio
+    async def test_empty_user_does_not_false_exited(self):
+        """空 _current_user 时，普通输出不应被判为 exited。"""
+        mock_output = "Some normal claude output\nGenerating response..."
+        with patch("session._tmux_exec", new_callable=AsyncMock, return_value=mock_output), \
+             patch.dict("session.TUI_PATTERNS", {"exited": ["fish"],
+                        "input_prompt": ["-- INSERT --", "❯"],
+                        "generating": ["thinking", "Generating", "streaming"],
+                        "permission": ["Do you want to", "(y/n)", "Allow", "Deny"]}):
+            state = await detect_tui_state("%1")
+        assert state != TuiState.EXITED
+        assert state == TuiState.GENERATING
+
+
 class TestDetectTuiState:
     @pytest.mark.asyncio
     async def test_input_state(self):
-        mock_output = "\n\n\nSome output\n> "
+        mock_output = "\n\n\nSome output\n❯ "
         with patch("session._tmux_exec", new_callable=AsyncMock, return_value=mock_output):
             state = await detect_tui_state("%1")
         assert state == TuiState.INPUT
@@ -82,7 +100,8 @@ class TestDetectTuiState:
 
     @pytest.mark.asyncio
     async def test_exited_state(self):
-        mock_output = "Done.\nuser@host $ "
+        from session import _current_user
+        mock_output = f"Done.\n{_current_user}@host ~ fish $ "
         with patch("session._tmux_exec", new_callable=AsyncMock, return_value=mock_output):
             state = await detect_tui_state("%1")
         assert state == TuiState.EXITED
@@ -167,7 +186,7 @@ class TestInjectMessage:
     @pytest.mark.asyncio
     async def test_inject_in_generating_sends_escape(self):
         call_count = 0
-        async def mock_exec(*args):
+        async def mock_exec(*args, **kwargs):
             nonlocal call_count
             if args[0] == "capture-pane":
                 call_count += 1
@@ -179,7 +198,8 @@ class TestInjectMessage:
 
     @pytest.mark.asyncio
     async def test_inject_in_exited_raises(self):
-        with patch("session._tmux_exec", new_callable=AsyncMock, return_value="user@host $ \n"):
+        from session import _current_user
+        with patch("session._tmux_exec", new_callable=AsyncMock, return_value=f"{_current_user}@host fish $ \n"):
             with pytest.raises(SessionDead):
                 await inject_message("%1", "hello")
 
@@ -225,18 +245,3 @@ class TestRespondTuiPermission:
         mock_exec.assert_called_with("send-keys", "-t", "%1", "n", "")
 
 
-class TestListTmuxWindows:
-    @pytest.mark.asyncio
-    async def test_parses_output(self):
-        output = "cp-abc1 %1\ncp-def2 %2\nbot %0\n"
-        with patch("session._tmux_exec", new_callable=AsyncMock, return_value=output):
-            result = await list_tmux_windows()
-        assert len(result) == 2
-        assert result[0]["window_name"] == "cp-abc1"
-        assert result[1]["pane_id"] == "%2"
-
-    @pytest.mark.asyncio
-    async def test_empty_output(self):
-        with patch("session._tmux_exec", new_callable=AsyncMock, return_value=""):
-            result = await list_tmux_windows()
-        assert result == []

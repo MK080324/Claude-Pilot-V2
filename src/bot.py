@@ -63,7 +63,7 @@ async def main() -> None:
     tg_app.add_handler(CallbackQueryHandler(handle_button))
     tg_app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
-    api_app = create_api_app(state, tg_app.bot)
+    api_app = create_api_app(state, tg_app.bot, base_dir=BASE_DIR)
     runner = web.AppRunner(api_app)
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", config.bot_port)
@@ -98,6 +98,23 @@ async def main() -> None:
     await tg_app.start()
     await tg_app.updater.start_polling()
     logger.info("Bot started, polling for updates...")
+
+    # 恢复已有 session 的 watcher
+    if state.group_chat_id:
+        from watcher import start_watcher
+        for sid, info in state.sessions.items():
+            tp = info.get("transcript_path", "")
+            tid = state.session_topics.get(sid)
+            if tp and tid:
+                try:
+                    await start_watcher(
+                        sid, tp, state.group_chat_id, tid,
+                        info.get("source", "terminal"),
+                        info.get("pane_id"), state, tg_app.bot,
+                    )
+                    logger.info("Restored watcher for session %s", sid)
+                except Exception:
+                    logger.warning("Failed to restore watcher for %s", sid, exc_info=True)
 
     await stop_event.wait()
     logger.info("Shutting down...")

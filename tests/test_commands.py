@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import os
-import sys
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from config import Config, State
 from handlers.commands import (
@@ -43,7 +40,8 @@ async def test_setup_in_group():
     with patch("handlers.commands.save_state"):
         await cmd_setup(update, ctx)
     assert state.group_chat_id == 456
-    update.message.reply_text.assert_called_with("群组已配置")
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "群组已配置" in call_text
 
 
 @pytest.mark.asyncio
@@ -66,7 +64,8 @@ async def test_start_saves_notify():
     with patch("handlers.commands.save_state"):
         await cmd_start(update, ctx)
     assert state.notify_chat_id == 456
-    update.message.reply_text.assert_called_with("已设置通知")
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "Claude Pilot" in call_text
 
 
 @pytest.mark.asyncio
@@ -75,7 +74,7 @@ async def test_status_output():
     state.sessions["abc123"] = {"cwd": "/proj/a"}
     await cmd_status(update, ctx)
     text = update.message.reply_text.call_args[0][0]
-    assert "活跃会话: 1" in text
+    assert "会话: 1" in text
     assert "abc123" in text
 
 
@@ -84,12 +83,14 @@ async def test_bypass_toggle():
     update, ctx, _, state = _make_update_context()
     with patch("handlers.commands.save_state"):
         await cmd_bypass(update, ctx)
-    assert state.sessions["_bypass_enabled"] is True
-    update.message.reply_text.assert_called_with("Hook 权限审批已开启")
+    assert state.bypass_enabled is True
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "开启" in call_text
     with patch("handlers.commands.save_state"):
         await cmd_bypass(update, ctx)
-    assert state.sessions["_bypass_enabled"] is False
-    update.message.reply_text.assert_called_with("Hook 权限审批已关闭")
+    assert state.bypass_enabled is False
+    call_text = update.message.reply_text.call_args[0][0]
+    assert "关闭" in call_text
 
 
 @pytest.mark.asyncio
@@ -127,7 +128,7 @@ async def test_resume_no_sessions():
 async def test_info_no_topic():
     update, ctx, _, _ = _make_update_context(thread_id=None)
     await cmd_info(update, ctx)
-    update.message.reply_text.assert_called_with("请在会话话题中使用")
+    update.message.reply_text.assert_called_with("请在话题中使用")
 
 
 @pytest.mark.asyncio
@@ -143,4 +144,4 @@ async def test_setdir_updates_config():
     update, ctx, config, _ = _make_update_context(text="/setdir /new/path")
     with patch("handlers.commands.save_state"):
         await cmd_setdir(update, ctx)
-    assert config.project_dir == "/new/path"
+    assert ctx.bot_data["state"].project_dir == "/new/path"

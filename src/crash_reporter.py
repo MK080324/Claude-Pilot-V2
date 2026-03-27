@@ -94,14 +94,29 @@ def _handle_state_change(
     return restart_count
 
 
+def _read_state_json(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
 def main() -> None:
     env = _parse_env(os.path.join(BASE_DIR, ".env"))
     token = env.get("BOT_TOKEN", "")
     chat_id_str = env.get("NOTIFY_CHAT_ID", "")
+    if not chat_id_str:
+        state_data = _read_state_json(os.path.join(BASE_DIR, ".state.json"))
+        chat_id_str = str(state_data.get("notify_chat_id", ""))
     if not token or not chat_id_str:
         print("BOT_TOKEN or NOTIFY_CHAT_ID not configured", file=sys.stderr)
         sys.exit(1)
-    chat_id = int(chat_id_str)
+    try:
+        chat_id = int(chat_id_str)
+    except (ValueError, TypeError):
+        print(f"Invalid chat_id: {chat_id_str!r}", file=sys.stderr)
+        sys.exit(1)
     pid_path = os.path.join(BASE_DIR, ".pid")
     log_path = os.path.join(BASE_DIR, "bot.log")
     was_alive = True

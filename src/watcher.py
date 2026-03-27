@@ -112,11 +112,15 @@ async def _flush_buffer(
 
 
 async def _check_tui_state(
-    pane_id: str, chat_id: int, topic_id: int, session_id: str, bot: object,
+    pane_id: str, chat_id: int, topic_id: int, session_id: str,
+    bot: object, permission_sent: set,
 ) -> None:
-    """检测 TUI 权限提示并发送审批消息。"""
+    """检测 TUI 权限提示并发送审批消息（去重）。"""
     state = await detect_tui_state(pane_id)
     if state == TuiState.PERMISSION_PROMPT:
+        if session_id in permission_sent:
+            return
+        permission_sent.add(session_id)
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("Allow", callback_data=f"tui_allow:{session_id}"),
             InlineKeyboardButton("Deny", callback_data=f"tui_deny:{session_id}"),
@@ -126,6 +130,8 @@ async def _check_tui_state(
             text="<b>TUI Permission Request</b>\nClaude is requesting permission.",
             parse_mode="HTML", reply_markup=keyboard,
         )
+    else:
+        permission_sent.discard(session_id)
 
 
 async def _watch_loop(
@@ -137,13 +143,15 @@ async def _watch_loop(
     seen_uuids: set = set()
     send_buffer: list[str] = []
     last_flush = time.time()
+    permission_sent: set = set()
     try:
         while True:
             events, last_pos = _read_jsonl_incremental(transcript_path, last_pos)
             for ev in events:
                 _process_event(ev, seen_uuids, source, send_buffer)
             if pane_id:
-                await _check_tui_state(pane_id, chat_id, topic_id, session_id, bot)
+                await _check_tui_state(
+                    pane_id, chat_id, topic_id, session_id, bot, permission_sent)
             now = time.time()
             if send_buffer and (now - last_flush >= FLUSH_INTERVAL):
                 last_flush = await _flush_buffer(

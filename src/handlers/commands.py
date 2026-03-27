@@ -1,249 +1,199 @@
 """Telegram 命令处理。"""
 from __future__ import annotations
-import os, time
+import json, os, time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 from config import Config, State, save_state
 
 _start_time = time.time()
+_CTX = ContextTypes.DEFAULT_TYPE
 
-def _auth_check(update: Update, config: Config) -> bool:
+def _ctx(context: _CTX) -> tuple[Config, State, str]:
+    cfg, st = context.bot_data["config"], context.bot_data["state"]
+    return cfg, st, os.path.join(context.bot_data.get("base_dir", ""), ".state.json")
+
+def _auth(update: Update, config: Config) -> bool:
     uid = update.effective_user.id if update.effective_user else 0
     return uid in config.allowed_users
 
-def _get_session_for_topic(state: State, topic_id: int) -> dict | None:
-    for sid, tid in state.session_topics.items():
-        if tid == topic_id:
-            return state.sessions.get(sid)
-    return None
+def _topic_session(state: State, update: Update) -> tuple[int | None, dict | None]:
+    tid = update.message.message_thread_id
+    if not tid:
+        return None, None
+    for sid, t in state.session_topics.items():
+        if t == tid:
+            return tid, state.sessions.get(sid)
+    return tid, None
 
-def _ctx(context: ContextTypes.DEFAULT_TYPE) -> tuple[Config, State, str]:
-    cfg = context.bot_data["config"]
-    st = context.bot_data["state"]
-    base = context.bot_data.get("base_dir", "")
-    return cfg, st, os.path.join(base, ".state.json")
+def _read_jsonl_summary(path: str, n: int = 5) -> str:
+    if not path or not os.path.exists(path): return "(无对话记录)"
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.readlines()
+    except Exception: return "(读取失败)"
+    out: list[str] = []
+    for line in reversed(raw):
+        if not (line := line.strip()): continue
+        try: ev = json.loads(line)
+        except json.JSONDecodeError: continue
+        role = ev.get("role", "")
+        if role == "assistant":
+            for b in (ev.get("message", {}).get("content", []) or []):
+                if isinstance(b, dict) and b.get("type") == "text":
+                    out.append(f"A: {b['text'][:80]}"); break
+        elif role == "user":
+            msg = ev.get("message", "")
+            txt = msg if isinstance(msg, str) else (msg.get("content", "") if isinstance(msg, dict) else "")
+            if txt: out.append(f"U: {txt[:80]}")
+        if len(out) >= n: break
+    out.reverse()
+    return "\n".join(out) or "(无对话记录)"
 
-async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_setup(update: Update, context: _CTX) -> None:
     config, state, sp = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    chat_type = update.effective_chat.type if update.effective_chat else ""
-    if "group" not in chat_type and "supergroup" not in chat_type:
-        await update.message.reply_text("请在超级群组中使用此命令")
-        return
+    if not _auth(update, config): return
+    ct = update.effective_chat.type if update.effective_chat else ""
+    if "group" not in ct and "supergroup" not in ct:
+        await update.message.reply_text("请在超级群组中使用此命令"); return
     state.group_chat_id = update.effective_chat.id
     save_state(state, sp)
-    setup_msg = (
-        "✅ <b>群组已配置完成！</b>\n\n"
-        "请确认以下设置：\n"
-        "1. Bot 已被设为群组管理员\n"
-        "2. 群组已开启「话题」功能（群组设置 → 话题）\n\n"
-        "配置就绪后，每个 Claude Code 会话将自动创建话题推送对话。\n"
-        "常用命令：\n"
-        "• /projects — 选择项目启动新会话\n"
-        "• /status — 查看运行状态\n"
-        "• /bypass — 跳过权限审批\n"
-        "• 在话题中直接发消息即可向 Claude 输入"
-    )
-    await update.message.reply_text(setup_msg, parse_mode="HTML")
+    await update.message.reply_text(
+        "✅ <b>群组已配置</b>\n确认: Bot 为管理员 + 已开启话题\n"
+        "/projects 启动会话 | /status 状态 | /bypass 审批", parse_mode="HTML")
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_start(update: Update, context: _CTX) -> None:
     config, state, sp = _ctx(context)
-    if not _auth_check(update, config):
-        return
+    if not _auth(update, config): return
     state.notify_chat_id = update.effective_chat.id
     save_state(state, sp)
-    welcome = (
-        "👋 欢迎使用 <b>Claude Pilot</b>！\n\n"
-        "<b>一、配置 Bot（在 @BotFather 中操作）</b>\n"
-        "1. 发送 /mybots → 选择本 Bot\n"
-        "2. Bot Settings → Group Privacy → <b>Turn off</b>\n"
-        "3. Bot Settings → Allow Groups → 确认已开启\n\n"
-        "<b>二、创建群组</b>\n"
-        "4. 新建一个 Telegram 群组\n"
-        "5. 群组设置 → 开启「话题」功能\n"
-        "6. 将本 Bot 加入群组并设为<b>管理员</b>\n\n"
-        "<b>三、完成配置</b>\n"
-        "7. 在群组中发送 /setup\n\n"
-        "全部完成后，每个 Claude Code 会话都会自动推送到群组话题中。\n"
-        "发 /help 查看所有可用命令。"
-    )
-    await update.message.reply_text(welcome, parse_mode="HTML")
+    await update.message.reply_text(
+        "👋 <b>Claude Pilot</b>\n1. @BotFather: Group Privacy → Off\n"
+        "2. 建群 → 开话题 → Bot 管理员\n3. 群内 /setup\n/help 查看命令", parse_mode="HTML")
 
-async def cmd_projects(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_projects(update: Update, context: _CTX) -> None:
     config, state, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    proj_dir = config.project_dir
+    if not _auth(update, config): return
+    proj_dir = state.project_dir or config.project_dir
     if not proj_dir or not os.path.isdir(proj_dir):
-        await update.message.reply_text("项目目录未配置或不存在，请使用 /setdir 设置")
-        return
+        await update.message.reply_text("项目目录未配置，用 /setdir 设置"); return
     try:
-        entries = sorted(
-            e for e in os.listdir(proj_dir)
-            if os.path.isdir(os.path.join(proj_dir, e)) and not e.startswith(".")
-        )
+        entries = sorted(e for e in os.listdir(proj_dir)
+                         if os.path.isdir(os.path.join(proj_dir, e)) and not e.startswith("."))
     except OSError:
-        await update.message.reply_text("无法读取项目目录")
-        return
+        await update.message.reply_text("无法读取项目目录"); return
     if not entries:
-        await update.message.reply_text("项目目录为空")
-        return
-    buttons = [
-        [InlineKeyboardButton(e, callback_data=f"project:{os.path.join(proj_dir, e)}")]
-        for e in entries
-    ]
+        await update.message.reply_text("项目目录为空"); return
+    buttons = [[InlineKeyboardButton(e, callback_data=f"project:{e}")] for e in entries]
     await update.message.reply_text("选择项目：", reply_markup=InlineKeyboardMarkup(buttons))
 
-async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_resume(update: Update, context: _CTX) -> None:
     config, state, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
+    if not _auth(update, config): return
     if not state.sessions:
-        await update.message.reply_text("无历史会话")
-        return
-    lines = [f"- {sid}: {info.get('cwd', '?')}" for sid, info in state.sessions.items()]
-    await update.message.reply_text("历史会话:\n" + "\n".join(lines))
+        await update.message.reply_text("无历史会话"); return
+    parts = [f"<b>{sid}</b> ({info.get('cwd', '?')})\n"
+             f"{_read_jsonl_summary(info.get('transcript_path', ''))}"
+             for sid, info in state.sessions.items()]
+    await update.message.reply_text("\n\n".join(parts), parse_mode="HTML")
 
-async def cmd_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_rename(update: Update, context: _CTX) -> None:
     config, _, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
+    if not _auth(update, config): return
     parts = (update.message.text or "").split(None, 1)
     if len(parts) < 2 or not parts[1].strip():
-        await update.message.reply_text("用法: /rename <新名称>")
-        return
-    new_name = parts[1].strip()
-    topic_id = update.message.message_thread_id
-    if not topic_id:
-        await update.message.reply_text("请在会话话题中使用")
-        return
+        await update.message.reply_text("用法: /rename <新名称>"); return
+    tid = update.message.message_thread_id
+    if not tid:
+        await update.message.reply_text("请在话题中使用"); return
     try:
-        await context.bot.edit_forum_topic(update.effective_chat.id, topic_id, name=new_name)
-        await update.message.reply_text(f"已重命名为: {new_name}")
+        await context.bot.edit_forum_topic(update.effective_chat.id, tid, name=parts[1].strip())
+        await update.message.reply_text(f"已重命名为: {parts[1].strip()}")
     except Exception:
         await update.message.reply_text("重命名失败")
 
-async def cmd_interrupt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_interrupt(update: Update, context: _CTX) -> None:
     config, state, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    topic_id = update.message.message_thread_id
-    if not topic_id:
-        await update.message.reply_text("请在会话话题中使用")
-        return
-    sess = _get_session_for_topic(state, topic_id)
+    if not _auth(update, config): return
+    tid, sess = _topic_session(state, update)
+    if not tid:
+        await update.message.reply_text("请在话题中使用"); return
     if not sess or not sess.get("pane_id"):
-        await update.message.reply_text("未找到关联会话")
-        return
+        await update.message.reply_text("未找到关联会话"); return
     from session import interrupt_session
     await interrupt_session(sess["pane_id"])
     await update.message.reply_text("已发送中断信号")
 
-async def cmd_quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_quit(update: Update, context: _CTX) -> None:
     config, _, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    topic_id = update.message.message_thread_id
-    if not topic_id:
-        await update.message.reply_text("请在会话话题中使用")
-        return
+    if not _auth(update, config): return
+    tid = update.message.message_thread_id
+    if not tid:
+        await update.message.reply_text("请在话题中使用"); return
     from watcher import stop_watcher
-    stop_watcher(topic_id)
+    stop_watcher(tid)
     await update.message.reply_text("已暂停监听")
 
-async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_delete(update: Update, context: _CTX) -> None:
     config, _, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    topic_id = update.message.message_thread_id
-    if not topic_id:
-        await update.message.reply_text("请在会话话题中使用")
-        return
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("确认删除", callback_data=f"delete_confirm:{topic_id}"),
-        InlineKeyboardButton("取消", callback_data=f"delete_cancel:{topic_id}"),
+    if not _auth(update, config): return
+    tid = update.message.message_thread_id
+    if not tid:
+        await update.message.reply_text("请在话题中使用"); return
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("确认删除", callback_data=f"delete_confirm:{tid}"),
+        InlineKeyboardButton("取消", callback_data=f"delete_cancel:{tid}"),
     ]])
-    await update.message.reply_text("确认删除此会话？", reply_markup=keyboard)
+    await update.message.reply_text("确认删除此会话？", reply_markup=kb)
 
-async def cmd_bypass(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_bypass(update: Update, context: _CTX) -> None:
     config, state, sp = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    current = state.sessions.get("_bypass_enabled", False)
-    state.sessions["_bypass_enabled"] = not current
+    if not _auth(update, config): return
+    state.bypass_enabled = not state.bypass_enabled
     save_state(state, sp)
-    status = "开启" if not current else "关闭"
-    await update.message.reply_text(f"Hook 权限审批已{status}")
+    await update.message.reply_text(f"审批绕过已{'开启' if state.bypass_enabled else '关闭'}")
 
-async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_status(update: Update, context: _CTX) -> None:
     config, state, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    uptime = int(time.time() - _start_time)
-    real = {k: v for k, v in state.sessions.items() if not k.startswith("_")}
-    lines = [f"运行时长: {uptime}s", f"活跃会话: {len(real)}"]
-    for sid, info in real.items():
-        lines.append(f"  - {sid}: {info.get('cwd', '?')}")
+    if not _auth(update, config): return
+    up = int(time.time() - _start_time)
+    lines = [f"运行: {up}s | 会话: {len(state.sessions)}"]
+    lines += [f"  {sid}: {i.get('cwd', '?')}" for sid, i in state.sessions.items()]
     await update.message.reply_text("\n".join(lines))
 
-async def cmd_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_info(update: Update, context: _CTX) -> None:
     config, state, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    topic_id = update.message.message_thread_id
-    if not topic_id:
-        await update.message.reply_text("请在会话话题中使用")
-        return
-    sess = _get_session_for_topic(state, topic_id)
+    if not _auth(update, config): return
+    tid, sess = _topic_session(state, update)
+    if not tid:
+        await update.message.reply_text("请在话题中使用"); return
     if not sess:
-        await update.message.reply_text("未找到关联会话")
-        return
+        await update.message.reply_text("未找到关联会话"); return
     await update.message.reply_text("\n".join(f"{k}: {v}" for k, v in sess.items()))
 
-async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_retry(update: Update, context: _CTX) -> None:
     config, _, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
+    if not _auth(update, config): return
     await update.message.reply_text("retry 功能暂未实现")
 
-async def cmd_setdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_setdir(update: Update, context: _CTX) -> None:
     config, state, sp = _ctx(context)
-    if not _auth_check(update, config):
-        return
+    if not _auth(update, config): return
     parts = (update.message.text or "").split(None, 1)
     if len(parts) < 2 or not parts[1].strip():
-        await update.message.reply_text("用法: /setdir <目录路径>")
-        return
-    config.project_dir = parts[1].strip()
+        await update.message.reply_text("用法: /setdir <目录路径>"); return
+    state.project_dir = parts[1].strip()
     save_state(state, sp)
-    await update.message.reply_text(f"项目目录已设置为: {config.project_dir}")
+    warn = "" if os.path.isdir(state.project_dir) else "\n⚠️ 该目录当前不存在"
+    await update.message.reply_text(f"目录: {state.project_dir}{warn}")
 
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_help(update: Update, context: _CTX) -> None:
     config, _, _ = _ctx(context)
-    if not _auth_check(update, config):
-        return
-    text = (
-        "<b>可用命令</b>\n\n"
-        "<b>配置</b>\n"
-        "/start — 初始引导\n"
-        "/setup — 在群组中完成配置\n"
-        "/setdir &lt;路径&gt; — 设置项目目录\n\n"
-        "<b>会话</b>\n"
-        "/projects — 选择项目启动新会话\n"
-        "/resume — 查看历史会话\n"
-        "/status — 查看运行状态\n\n"
-        "<b>话题内操作</b>\n"
-        "/interrupt — 中断当前生成\n"
-        "/rename &lt;名称&gt; — 重命名话题\n"
-        "/info — 查看会话详情\n"
-        "/quit — 停止监听\n"
-        "/delete — 删除会话\n\n"
-        "<b>其他</b>\n"
-        "/bypass — 开关 Hook 权限审批\n"
-        "/help — 显示本帮助"
-    )
-    await update.message.reply_text(text, parse_mode="HTML")
+    if not _auth(update, config): return
+    await update.message.reply_text(
+        "<b>命令</b>\n/start 引导 | /setup 配群 | /setdir 目录\n"
+        "/projects 启动 | /resume 历史 | /status 状态\n"
+        "/interrupt 中断 | /rename 改名 | /info 详情\n"
+        "/quit 停监听 | /delete 删除 | /bypass 审批", parse_mode="HTML")
 
-async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("未知命令，发 /help 查看可用命令。")
+async def cmd_unknown(update: Update, context: _CTX) -> None:
+    await update.message.reply_text("未知命令，/help 查看可用命令")

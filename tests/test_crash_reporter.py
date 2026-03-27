@@ -2,12 +2,9 @@
 from __future__ import annotations
 import json
 import os
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from crash_reporter import (
     _check_pid_alive, _extract_traceback, _handle_state_change, _send_telegram_message,

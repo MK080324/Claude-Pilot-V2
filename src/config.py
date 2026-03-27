@@ -34,6 +34,8 @@ class State:
     notify_chat_id: int | None = None
     sessions: dict[str, dict] = field(default_factory=dict)
     session_topics: dict[str, int] = field(default_factory=dict)
+    bypass_enabled: bool = False
+    project_dir: str = ""
 
 
 def load_env(path: str) -> dict[str, str]:
@@ -61,11 +63,15 @@ def load_state(path: str) -> State:
         return State()
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    raw_sessions = data.get("sessions", {})
+    sessions = {k: v for k, v in raw_sessions.items() if not k.startswith("_")}
     return State(
         group_chat_id=data.get("group_chat_id"),
         notify_chat_id=data.get("notify_chat_id"),
-        sessions=data.get("sessions", {}),
+        sessions=sessions,
         session_topics=data.get("session_topics", {}),
+        bypass_enabled=data.get("bypass_enabled", False),
+        project_dir=data.get("project_dir", ""),
     )
 
 
@@ -77,6 +83,8 @@ def save_state(state: State, path: str) -> None:
         "notify_chat_id": state.notify_chat_id,
         "sessions": state.sessions,
         "session_topics": state.session_topics,
+        "bypass_enabled": state.bypass_enabled,
+        "project_dir": state.project_dir,
     }
     fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
     try:
